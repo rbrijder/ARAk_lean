@@ -32,41 +32,41 @@ end set
 
 namespace ARA
 section ARA
--- ARA result
+-- The goal is to prove the main ARA result
 
-inductive ARAe (rel att: Type) : Type
+@[reducible] def mut_compat {att: Type} [setoid att] (Y : set att) : Prop := ∀ x y ∈ Y, x ≈ y
+@[reducible] def compat_func {att: Type} [setoid att] {X Y : set att} (φ : X → Y) : Prop := ∀ x : X, (x : att) ≈ ((φ x) : att)
+
+inductive ARAe (rel att: Type) [setoid att] : Type
 | relnm (R : rel) : ARAe
 | union : ARAe → ARAe → ARAe
 | proj (Y : finset att) : ARAe → ARAe
-| selection (Y : finset att) : ARAe → ARAe
-| rename (φ : att → att) : ARAe → ARAe -- move injective condition to here?
+| selection (Y : finset att) (hmutc : mut_compat (↑Y : set att)) : ARAe → ARAe
+| rename (φ : att → att) (hinj : function.injective φ) (hc : compat_func (set.func_to_univ φ)) : ARAe → ARAe
 | join : ARAe → ARAe → ARAe
 
-parameters {rel att dom: Type} [att_compat : setoid att]
+parameters {rel att dom: Type} [setoid att]
 
 -- defines schema of an ARA expression
 def ARAschema (e : ARAe rel att) (S : rel → finset att) : finset att :=
 ARAe.rec_on e S -- relnm
               (λ e1 e2 e1S e2S, e1S ∪ e2S) -- union
               (λ Y e1 e1S, e1S ∩ Y) -- proj
-              (λ Y e1 e1S, e1S) -- selection
-              (λ φ e1 e1S, finset.image φ e1S) -- rename
+              (λ Y hmutc e1 e1S, e1S) -- selection
+              (λ φ hinj hc e1 e1S, finset.image φ e1S) -- rename
               (λ e1 e2 e1S e2S, e1S ∪ e2S) -- join
 
-@[reducible] def mut_compat (Y : set att) : Prop := ∀ x y ∈ Y, att_compat.rel x y --why does x ≈ y not work?
-@[reducible] def compat_func {X Y : set att} (φ : X → Y) : Prop := ∀ x : X, att_compat.rel x (φ x)
-
--- def well typed
+-- def well typed: union should be on relations with equal schema
 def ARA_well_typed (e : ARAe rel att) (S : rel → finset att) : Prop :=
 ARAe.rec_on e (λ R, true) -- relnm
               (λ e1 e2 e1W e2W, e1W ∧ e2W ∧ (ARAschema e1 S = ARAschema e2 S)) -- union
               (λ Y e1 e1W, e1W) -- proj
-              (λ Y e1 e1W, e1W ∧ mut_compat ↑Y) -- selection
-              (λ φ e1 e1W, e1W ∧ function.injective φ ∧ (compat_func (set.func_to_univ φ))) -- rename
+              (λ Y hmutc e1 e1W, e1W) -- selection
+              (λ φ hinj hc e1 e1W, e1W) -- rename
               (λ e1 e2 e1W e2W, e1W ∧ e2W) -- join
 
 -- def semantics
-def dom_assign := quotient att_compat → finset dom -- not assumed that assigned domain is nonempty
+def dom_assign := quotient _inst_1 → finset dom -- not assumed that assigned domain is nonempty
 
 variables (D : dom_assign)
 variables (X X' : finset att)
@@ -103,7 +103,7 @@ theorem func_compat_eq_dom {X X' : finset att} {f : (↑X' : set att) → (↑X 
 (A : (↑X' : set att)) : ⟦(f A : att)⟧ = ⟦(A : att)⟧ :=
 begin
 apply quotient.eq_rel.mpr, unfold compat_func at h, rw set_coe.forall at h, cases A,
-exact setoid.symm' att_compat (h A_val A_property),
+exact setoid.symm' _inst_1 (h A_val A_property),
 end
 
 def tuple_comp {D : dom_assign} {X X' : finset att} {f : (↑X' : set att) → (↑X : set att)} (t : tuple D X)
@@ -135,16 +135,15 @@ def rel_join (r : relation D X α) (r' : relation D X' α) :
                                             r'(tuple_comp t (inclusion_compat (finset.subset_union_right X X'))))
 def db_instance (S : rel → finset att) := Π (R : rel), relation D (S R) α
 
--- Note: we define semantics without assuming well-typedness. This requires, e.g., rel_union to be defined in a more general setting.
--- Also, att_compat is not used in this definition.
+-- Note: we define semantics without assuming well-typedness. 
+-- This requires rel_union to be defined above in a more general setting.
 def ARA_semantics (e : ARAe rel att) (S : rel → finset att) (I : db_instance D α S) :
                   relation D (ARAschema e S) α :=
 ARAe.rec_on e I -- relnm
               (λ e1 e2 e1W e2W, rel_union D (ARAschema e1 S) (ARAschema e2 S) α e1W e2W) -- union
               (λ Y e1 e1W, rel_proj D (ARAschema e1 S) α e1W Y pi.fintype) -- proj
-              -- below is not nice: add well_definedness of e?
-              (λ Y e1 e1W, if h : mut_compat ↑Y then rel_selection D (ARAschema e1 S) α e1W Y h else rel_one D (ARAschema e1 S) α) -- selection
-              (λ φ e1 e1W, if h : (compat_func (set.func_to_univ φ)) then rel_renaming D (ARAschema e1 S) α e1W φ h else rel_one D (finset.image φ (ARAschema e1 S)) α) -- rename
+              (λ Y hmutc e1 e1W, rel_selection D (ARAschema e1 S) α e1W Y hmutc) -- selection
+              (λ φ hinj hc e1 e1W, rel_renaming D (ARAschema e1 S) α e1W φ hc) -- rename
               (λ e1 e2 e1W e2W, rel_join D (ARAschema e1 S) (ARAschema e2 S) α e1W e2W) -- join
 
 end ARA
