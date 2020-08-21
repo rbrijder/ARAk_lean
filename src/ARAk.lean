@@ -1,16 +1,17 @@
 import init.function
 import data.set.finite
+import init.data.quot
+import data.setoid.partition
 
 noncomputable theory
 local attribute [instance, priority 100] classical.prop_decidable
 
---------------------------------------------------------------------
+------------------------ for mathlib? -------------------------------
 namespace finset
 
 universes u v
 
 -- finset equivalent to set.maps_to_image. Similar to: set.maps_to_image f ↑s
--- for mathlib?
 theorem maps_to_image {α : Type u} {β : Type v} (f : α → β) (s : finset α) :
 set.maps_to f ↑s ↑(finset.image f s) :=
 begin
@@ -19,8 +20,18 @@ rw finset.coe_image,
 end
 
 end finset
---------------------------------------------------------------------
 
+namespace set
+
+universes u v
+def func_to_univ {α : Type u} {β : Type v} (f : α → β) : (@set.univ α) → (@set.univ β) :=
+set.maps_to.restrict f set.univ set.univ (set.maps_to_univ f set.univ)
+
+end set
+---------------------------------------------------------------------
+
+namespace ARA
+section ARA
 -- ARA result
 
 inductive ARAe (rel att: Type) : Type
@@ -31,73 +42,110 @@ inductive ARAe (rel att: Type) : Type
 | rename (φ : att → att) : ARAe → ARAe -- move injective condition to here?
 | join : ARAe → ARAe → ARAe
 
-namespace ARAe
-
-section ARA
-parameters {rel att dom: Type}
-parameters {dom_used : finset dom}
-
---variables {att_compat: att → att → Prop} [equivalence att_compat]
-def mut_compat (att_compat: att → att → Prop) (Y: finset att) : Prop := ∀ x y ∈ Y, att_compat x y
---def compat_func (att_compat: att → att → Prop) (φ : att → att) : Prop := ∀ x ∈ att, att_compat x (φ x)
+parameters {rel att dom: Type} [att_compat : setoid att]
 
 -- defines schema of an ARA expression
 def ARAschema (e : ARAe rel att) (S : rel → finset att) : finset att :=
-ARAe.rec_on e S -- = (λ R, S(R)) -- relnm
+ARAe.rec_on e S -- relnm
               (λ e1 e2 e1S e2S, e1S ∪ e2S) -- union
               (λ Y e1 e1S, e1S ∩ Y) -- proj
               (λ Y e1 e1S, e1S) -- selection
               (λ φ e1 e1S, finset.image φ e1S) -- rename
               (λ e1 e2 e1S e2S, e1S ∪ e2S) -- join
 
+@[reducible] def mut_compat (Y : set att) : Prop := ∀ x y ∈ Y, att_compat.rel x y --why does x ≈ y not work?
+@[reducible] def compat_func {X Y : set att} (φ : X → Y) : Prop := ∀ x : X, att_compat.rel x (φ x)
+
 -- def well typed
-def ARA_well_typed (e : ARAe rel att) (S : rel → finset att) (att_compat: att → att → Prop) : Prop :=
+def ARA_well_typed (e : ARAe rel att) (S : rel → finset att) : Prop :=
 ARAe.rec_on e (λ R, true) -- relnm
               (λ e1 e2 e1W e2W, e1W ∧ e2W ∧ (ARAschema e1 S = ARAschema e2 S)) -- union
               (λ Y e1 e1W, e1W) -- proj
-              (λ Y e1 e1W, e1W ∧ mut_compat att_compat Y) -- selection
-              (λ φ e1 e1W, e1W ∧ function.injective φ) -- rename
+              (λ Y e1 e1W, e1W ∧ mut_compat ↑Y) -- selection
+              (λ φ e1 e1W, e1W ∧ function.injective φ ∧ (compat_func (set.func_to_univ φ))) -- rename
               (λ e1 e2 e1W e2W, e1W ∧ e2W) -- join
 
 -- def semantics
---variable Da: att → D -- let us instead assume for now that dom is finite and Da(A)=dom
+def dom_assign := quotient att_compat → finset dom -- not assumed that assigned domain is nonempty
 
+variables (D : dom_assign)
 variables (X X' : finset att)
-@[reducible] def tuple := (↑X : set att) → (↑dom_used : set dom)
+@[reducible] def tuple := Π (A : (↑X : set att)), (↑(D⟦A⟧) : set dom)
 variables (α : Type) [semiring α]
 
-def relation (α : Type) := tuple X → α
+def relation (α : Type) := tuple D X → α
 
-def rel_one : relation X α := (λ t, 1)
-def rel_union (r : relation X α) (r' : relation X' α) :
-              relation (X ∪ X') α := (λ t, r(t ∘ set.inclusion (finset.subset_union_left X X')) + 
-                                          r'(t ∘ set.inclusion (finset.subset_union_right X X')))
-def rel_proj (r : relation X α) (Y : finset att) (hfin : fintype (tuple X)) :
-              relation (X ∩ Y) α := (λ t, finset.sum (set.finite.to_finset (set.finite.of_fintype -- use finsum
-                                    {t' : tuple X | t = t' ∘ set.inclusion (finset.inter_subset_left X Y)})) r)
-def rel_selection (r : relation X α) (Y : finset att) :
-              relation X α := (λ t, if (∀ y1 y2 : (↑(X ∩ Y) : set att), t (set.inclusion (finset.inter_subset_left X Y) y1) = 
-                                                     t (set.inclusion (finset.inter_subset_left X Y) y2)) then r(t) else 0)
-def rel_renaming (r : relation X α) (φ : att → att) :
-              relation (finset.image φ X) α := (λ t, r(t ∘ (set.maps_to.restrict φ ↑X ↑(finset.image φ X) 
-              (finset.maps_to_image φ X)
-              )))
-def rel_join (r : relation X α) (r' : relation X' α) :
-              relation (X ∪ X') α := (λ t, r(t ∘ set.inclusion (finset.subset_union_left X X')) * 
-                                          r'(t ∘ set.inclusion (finset.subset_union_right X X')))
+theorem inclusion_compat {s t : set att} (h : s ⊆ t) : compat_func (set.inclusion h) :=
+begin
+intro x, refl,
+end
 
-def db_instance (S : rel → finset att) := Π (R : rel), relation (S R) α
+--set_option trace.simplify.rewrite true
+theorem restrict_compat {f : att → att} {s t : set att} (h1 : compat_func (set.func_to_univ f)) (h2 : set.maps_to f s t) :
+compat_func (set.maps_to.restrict f s t h2) :=
+begin
+intro x, unfold compat_func at h1, rw set_coe.forall at h1, apply h1, exact trivial,
+end
 
--- note: we define semantics without assuming well-typedness. This requires, e.g., rel_union to be defined in a more general setting.
--- TODO: att_compat not (yet?) used.
-def ARA_semantics (e : ARAe rel att) (S : rel → finset att) (att_compat: att → att → Prop) (I : db_instance α S) :
-                  relation (ARAschema e S) α :=
-ARAe.rec_on e (λ R, I R) -- relnm
-              (λ e1 e2 e1W e2W, rel_union (ARAschema e1 S) (ARAschema e2 S) α e1W e2W) -- union
-              (λ Y e1 e1W, rel_proj (ARAschema e1 S) α e1W Y pi.fintype) -- proj
-              (λ Y e1 e1W, rel_selection (ARAschema e1 S) α e1W Y) -- selection
-              (λ φ e1 e1W, rel_renaming (ARAschema e1 S) α e1W φ) -- rename
-              (λ e1 e2 e1W e2W, rel_join (ARAschema e1 S) (ARAschema e2 S) α e1W e2W) -- join
+def tuple_val_change_type {A B : att} (h: ⟦A⟧ = ⟦B⟧) (d : (↑(D⟦A⟧) : set dom)) :
+(↑(D⟦B⟧) : set dom) :=
+begin
+rw h at d,
+exact d,
+end
+
+theorem mut_compat_eq_dom {Y : set att} (h : mut_compat Y) (A B : Y) : ⟦(A : att)⟧ = ⟦(B : att)⟧ :=
+begin
+apply quotient.eq_rel.mpr, apply h, cases A, rw subtype.coe_mk, exact A_property, cases B, rw subtype.coe_mk, exact B_property,
+end
+
+theorem func_compat_eq_dom {X X' : finset att} {f : (↑X' : set att) → (↑X : set att)} (h : compat_func f)
+(A : (↑X' : set att)) : ⟦(f A : att)⟧ = ⟦(A : att)⟧ :=
+begin
+apply quotient.eq_rel.mpr, unfold compat_func at h, rw set_coe.forall at h, cases A,
+exact setoid.symm' att_compat (h A_val A_property),
+end
+
+def tuple_comp {D : dom_assign} {X X' : finset att} {f : (↑X' : set att) → (↑X : set att)} (t : tuple D X)
+(h : compat_func f) : tuple D X' :=
+(λ A, (tuple_val_change_type D (func_compat_eq_dom h A) (t (f A))))
+
+def relation_mut_eq {D : dom_assign} {X : finset att} {Y : set att} (h : mut_compat Y) (t : tuple D X) : Prop :=
+(∀ A B : (↑X) ∩ Y,
+let fil := (set.inclusion (set.inter_subset_left ↑X Y)) in
+let fir := (set.inclusion (set.inter_subset_right ↑X Y)) in
+(tuple_val_change_type D (mut_compat_eq_dom h (fir A) (fir B)) (t (fil A))) = t (fil B))
+
+--set_option pp.implicit true
+--set_option pp.coercions true
+
+def rel_one : relation D X α := (λ t, 1)
+def rel_union (r : relation D X α) (r' : relation D X' α) :
+              relation D (X ∪ X') α := (λ t, r(tuple_comp t (inclusion_compat (finset.subset_union_left X X'))) +
+                                            r'(tuple_comp t (inclusion_compat (finset.subset_union_right X X'))))
+def rel_proj (r : relation D X α) (Y : finset att) (hfin : fintype (tuple D X)) :
+              relation D (X ∩ Y) α := (λ t, finset.sum (set.finite.to_finset (set.finite.of_fintype -- use finsum
+                                    {t' : tuple D X | t = tuple_comp t' (inclusion_compat (finset.inter_subset_left X Y))})) r)
+def rel_selection (r : relation D X α) (Y : finset att) (h : mut_compat ↑Y) :
+              relation D X α := (λ t, if relation_mut_eq h t then r(t) else 0)
+def rel_renaming (r : relation D X α) (φ : att → att) (h : (compat_func (set.func_to_univ φ))) :
+              relation D (finset.image φ X) α := (λ t, r(tuple_comp t (restrict_compat h (finset.maps_to_image φ X))))
+def rel_join (r : relation D X α) (r' : relation D X' α) :
+              relation D (X ∪ X') α := (λ t, r(tuple_comp t (inclusion_compat (finset.subset_union_left X X'))) *
+                                            r'(tuple_comp t (inclusion_compat (finset.subset_union_right X X'))))
+def db_instance (S : rel → finset att) := Π (R : rel), relation D (S R) α
+
+-- Note: we define semantics without assuming well-typedness. This requires, e.g., rel_union to be defined in a more general setting.
+-- Also, att_compat is not used in this definition.
+def ARA_semantics (e : ARAe rel att) (S : rel → finset att) (I : db_instance D α S) :
+                  relation D (ARAschema e S) α :=
+ARAe.rec_on e I -- relnm
+              (λ e1 e2 e1W e2W, rel_union D (ARAschema e1 S) (ARAschema e2 S) α e1W e2W) -- union
+              (λ Y e1 e1W, rel_proj D (ARAschema e1 S) α e1W Y pi.fintype) -- proj
+              -- below is not nice: add well_definedness of e?
+              (λ Y e1 e1W, if h : mut_compat ↑Y then rel_selection D (ARAschema e1 S) α e1W Y h else rel_one D (ARAschema e1 S) α) -- selection
+              (λ φ e1 e1W, if h : (compat_func (set.func_to_univ φ)) then rel_renaming D (ARAschema e1 S) α e1W φ h else rel_one D (finset.image φ (ARAschema e1 S)) α) -- rename
+              (λ e1 e2 e1W e2W, rel_join D (ARAschema e1 S) (ARAschema e2 S) α e1W e2W) -- join
 
 end ARA
-end ARAe
+end ARA
