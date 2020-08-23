@@ -145,7 +145,7 @@ ARAe.rec_on e I -- relnm
 
 theorem rel_union_comm_type : relation D (X ∪ X') α = relation D (X' ∪ X) α := by rw finset.union_comm X X'
 
-theorem rel_union_comm (r : relation D X α) (r' : relation D X' α) : rel_union r r' = rel_inter_comm.mp (rel_union r' r) := sorry
+theorem rel_union_comm (r : relation D X α) (r' : relation D X' α) : rel_union r r' = rel_union_comm_type.mp (rel_union r' r) := sorry
 
 end ARA
 end ARA
