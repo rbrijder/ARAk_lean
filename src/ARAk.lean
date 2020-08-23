@@ -87,12 +87,8 @@ begin
 intro x, unfold compat_func at h1, rw set_coe.forall at h1, apply h1, exact trivial,
 end
 
-def tuple_val_change_type {A B : att} (h: ⟦A⟧ = ⟦B⟧) (d : (↑(D⟦A⟧) : set dom)) :
-(↑(D⟦B⟧) : set dom) :=
-begin
-rw h at d,
-exact d,
-end
+theorem compat_att_eq_dom {A B : att} (h: ⟦A⟧ = ⟦B⟧) : ↥(↑(D⟦A⟧) : set dom) = ↥(↑(D⟦B⟧) : set dom) := 
+congr rfl (congr_arg coe (congr_arg D h))
 
 theorem mut_compat_eq_dom {Y : set att} (h : mut_compat Y) (A B : Y) : ⟦(A : att)⟧ = ⟦(B : att)⟧ :=
 begin
@@ -108,13 +104,13 @@ end
 
 def tuple_comp {D : dom_assign} {X X' : finset att} {f : (↑X' : set att) → (↑X : set att)} (t : tuple D X)
 (h : compat_func f) : tuple D X' :=
-(λ A, (tuple_val_change_type (func_compat_eq_dom h A) (t (f A))))
+(λ A, (eq.mp (compat_att_eq_dom (func_compat_eq_dom h A)) (t (f A))))
 
 def relation_mut_eq {D : dom_assign} {X : finset att} {Y : set att} (h : mut_compat Y) (t : tuple D X) : Prop :=
 (∀ A B : (↑X) ∩ Y,
 let fil := (set.inclusion (set.inter_subset_left ↑X Y)) in
 let fir := (set.inclusion (set.inter_subset_right ↑X Y)) in
-(tuple_val_change_type (mut_compat_eq_dom h (fir A) (fir B)) (t (fil A))) = t (fil B))
+(eq.mp (compat_att_eq_dom (mut_compat_eq_dom h (fir A) (fir B))) (t (fil A))) = t (fil B))
 
 --set_option pp.implicit true
 --set_option pp.coercions true
@@ -124,7 +120,7 @@ def rel_union (r : relation D X α) (r' : relation D X' α) :
               relation D (X ∪ X') α := (λ t, r(tuple_comp t (inclusion_compat (finset.subset_union_left X X'))) +
                                             r'(tuple_comp t (inclusion_compat (finset.subset_union_right X X'))))
 def rel_proj (r : relation D X α) (Y : finset att) (hfin : fintype (tuple D X)) :
-              relation D (X ∩ Y) α := (λ t, finset.sum (set.finite.to_finset (set.finite.of_fintype -- use finsum
+              relation D (X ∩ Y) α := (λ t, finset.sum (set.finite.to_finset (set.finite.of_fintype -- use new finsum API
                                     {t' : tuple D X | t = tuple_comp t' (inclusion_compat (finset.inter_subset_left X Y))})) r)
 def rel_selection (r : relation D X α) (Y : finset att) (h : mut_compat ↑Y) :
               relation D X α := (λ t, if relation_mut_eq h t then r(t) else 0)
@@ -133,6 +129,8 @@ def rel_renaming (r : relation D X α) (φ : att → att) (h : (compat_func (set
 def rel_join (r : relation D X α) (r' : relation D X' α) :
               relation D (X ∪ X') α := (λ t, r(tuple_comp t (inclusion_compat (finset.subset_union_left X X'))) *
                                             r'(tuple_comp t (inclusion_compat (finset.subset_union_right X X'))))
+
+-- TODO: add usual notation for the above operations
 
 -- Note: we define semantics without assuming well-typedness. 
 -- This requires rel_union to be defined above in a more general setting.
@@ -145,7 +143,9 @@ ARAe.rec_on e I -- relnm
               (λ φ hinj hc e1 e1W, rel_renaming e1W φ hc) -- rename
               (λ e1 e2 e1W e2W, rel_join e1W e2W) -- join
 
---theorem rel_union_comm (r : relation D X α) (r' : relation D X' α) : rel_union r r' = rel_union r' r := sorry
+theorem rel_inter_comm : relation D (X ∪ X') α = relation D (X' ∪ X) α := by rw finset.union_comm X X'
+
+theorem rel_union_comm (r : relation D X α) (r' : relation D X' α) : rel_union r r' = rel_inter_comm.mp (rel_union r' r) := sorry
 
 end ARA
 end ARA
