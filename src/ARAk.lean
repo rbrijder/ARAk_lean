@@ -143,7 +143,7 @@ ARAe.rec_on e I -- relnm
               (λ φ hinj hc e1 e1W, rel_renaming e1W φ hc) -- rename
               (λ e1 e2 e1W e2W, rel_join e1W e2W) -- join
 
-theorem rel_inter_comm : relation D (X ∪ X') α = relation D (X' ∪ X) α := by rw finset.union_comm X X'
+theorem rel_union_comm_type : relation D (X ∪ X') α = relation D (X' ∪ X) α := by rw finset.union_comm X X'
 
 theorem rel_union_comm (r : relation D X α) (r' : relation D X' α) : rel_union r r' = rel_inter_comm.mp (rel_union r' r) := sorry
 
