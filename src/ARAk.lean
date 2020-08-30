@@ -69,11 +69,28 @@ ARAe.rec_on e (λ R, true) -- relnm
 def dom_assign := quotient _inst_1 → finset dom -- not assumed that assigned domain is nonempty
 
 @[reducible] def tuple (D : dom_assign) (X : finset att) := Π (A : (↑X : set att)), (↑(D⟦A⟧) : set dom)
-def relation (D : dom_assign) (X : finset att) (α : Type) := tuple D X → α
-def db_instance (D : dom_assign) (S : rel → finset att) (α : Type) := Π (R : rel), relation D (S R) α
 
-variables {D : dom_assign} {X X' : finset att}
-variables {α : Type} [semiring α]
+structure relation (D : dom_assign) (α : Type) :=
+(schema : finset att)
+(rel : tuple D schema → α)
+
+/-
+structure db_instance (D : dom_assign) (S : rel → finset att) (α : Type) :=
+(dbI : rel → relation D α)
+(schema_respect : (∀ R : rel, (dbI R).schema = S R))
+-/
+
+def db_instance (D : dom_assign) (S : rel → finset att) (α : Type) := Π R : rel, tuple D (S R) → α
+
+def db_instance_to_rel {D : dom_assign} {S : rel → finset att} {α : Type} (I : db_instance D S α) :
+rel → relation D α :=
+(λ R,
+{
+    schema := S R,
+    rel := I R
+})
+
+variables {D : dom_assign} {α : Type} [semiring α]
 
 theorem inclusion_compat {s t : set att} (h : s ⊆ t) : compat_func (set.inclusion h) :=
 begin
@@ -87,7 +104,7 @@ begin
 intro x, unfold compat_func at h1, rw set_coe.forall at h1, apply h1, exact trivial,
 end
 
-theorem compat_att_eq_dom {A B : att} (h: ⟦A⟧ = ⟦B⟧) : ↥(↑(D⟦A⟧) : set dom) = ↥(↑(D⟦B⟧) : set dom) := 
+theorem compat_att_eq_dom {A B : att} (h: ⟦A⟧ = ⟦B⟧) : ↥(↑(D⟦A⟧) : set dom) = ↥(↑(D⟦B⟧) : set dom) :=
 congr rfl (congr_arg coe (congr_arg D h))
 
 theorem mut_compat_eq_dom {Y : set att} (h : mut_compat Y) (A B : Y) : ⟦(A : att)⟧ = ⟦(B : att)⟧ :=
@@ -115,37 +132,107 @@ let fir := (set.inclusion (set.inter_subset_right ↑X Y)) in
 --set_option pp.implicit true
 --set_option pp.coercions true
 
-def rel_one : relation D X α := (λ t, 1)
-def rel_union (r : relation D X α) (r' : relation D X' α) :
-              relation D (X ∪ X') α := (λ t, r(tuple_comp t (inclusion_compat (finset.subset_union_left X X'))) +
-                                            r'(tuple_comp t (inclusion_compat (finset.subset_union_right X X'))))
-def rel_proj (r : relation D X α) (Y : finset att) (hfin : fintype (tuple D X)) :
-              relation D (X ∩ Y) α := (λ t, finset.sum (set.finite.to_finset (set.finite.of_fintype -- use new finsum API
-                                    {t' : tuple D X | t = tuple_comp t' (inclusion_compat (finset.inter_subset_left X Y))})) r)
-def rel_selection (r : relation D X α) (Y : finset att) (h : mut_compat ↑Y) :
-              relation D X α := (λ t, if relation_mut_eq h t then r(t) else 0)
-def rel_renaming (r : relation D X α) (φ : att → att) (h : (compat_func (set.func_to_univ φ))) :
-              relation D (finset.image φ X) α := (λ t, r(tuple_comp t (restrict_compat h (finset.maps_to_image φ X))))
-def rel_join (r : relation D X α) (r' : relation D X' α) :
-              relation D (X ∪ X') α := (λ t, r(tuple_comp t (inclusion_compat (finset.subset_union_left X X'))) *
-                                            r'(tuple_comp t (inclusion_compat (finset.subset_union_right X X'))))
+def rel_one (X : finset att) : relation D α :=
+{
+    schema := X,
+    rel := (λ t, 1)
+}
+def rel_union (r r' : relation D α) : relation D α :=
+{
+    schema := r.schema ∪ r'.schema,
+    rel := (λ t, r.rel(tuple_comp t (inclusion_compat (finset.subset_union_left r.schema r'.schema))) +
+                  r'.rel(tuple_comp t (inclusion_compat (finset.subset_union_right r.schema r'.schema))))
+}
+def rel_proj (r : relation D α) (Y : finset att) (hfin : fintype (tuple D r.schema)) : relation D α :=
+{
+    schema := r.schema ∩ Y,
+    rel := (λ t, finset.sum (set.finite.to_finset (set.finite.of_fintype -- use new finsum API
+           {t' : tuple D r.schema | t = tuple_comp t' (inclusion_compat (finset.inter_subset_left r.schema Y))}
+           )) r.rel)
+}
+def rel_selection (r : relation D α) (Y : finset att) (h : mut_compat ↑Y) : relation D α :=
+{
+    schema := r.schema,
+    rel := (λ t, if relation_mut_eq h t then (r.rel t) else 0)
+}
+def rel_rename (r : relation D α) (φ : att → att) (h : (compat_func (set.func_to_univ φ))) : relation D α :=
+{
+    schema := finset.image φ r.schema,
+    rel := (λ t, r.rel(tuple_comp t (restrict_compat h (finset.maps_to_image φ r.schema))))
+}
+def rel_join (r r' : relation D α) : relation D α :=
+{
+    schema := r.schema ∪ r'.schema,
+    rel := (λ t, r.rel(tuple_comp t (inclusion_compat (finset.subset_union_left r.schema r'.schema))) *
+                  r'.rel(tuple_comp t (inclusion_compat (finset.subset_union_right r.schema r'.schema))))
+}
 
 -- TODO: add usual notation for the above operations
 
--- Note: we define semantics without assuming well-typedness. 
--- This requires rel_union to be defined above in a more general setting.
-def ARA_semantics (e : ARAe rel att) (S : rel → finset att) (I : db_instance D S α) :
-                  relation D (ARAschema e S) α :=
+/- possibly remove -/
+def bundle_rel {D : dom_assign} {α : Type} {schema : finset att} (rel : tuple D schema → α) :
+relation D α :=
+{
+    schema := schema,
+    rel := rel
+}
+
+/- possibly remove -/
+def ARA_output_with_schema (e : ARAe rel att) (S : rel → finset att) (I : db_instance D S α) :
+tuple D (ARAschema e S) → α :=
 ARAe.rec_on e I -- relnm
+              (λ e1 e2 e1W e2W, (rel_union (bundle_rel e1W) (bundle_rel e2W)).rel) -- union
+              (λ Y e1 e1W, (rel_proj (bundle_rel e1W) Y pi.fintype).rel) -- proj
+              (λ Y hmutc e1 e1W, (rel_selection (bundle_rel e1W) Y hmutc).rel) -- selection
+              (λ φ hinj hc e1 e1W, (rel_rename (bundle_rel e1W) φ hc).rel) -- rename
+              (λ e1 e2 e1W e2W, (rel_join (bundle_rel e1W) (bundle_rel e2W)).rel) -- join
+
+-- Note: we define semantics without assuming well-typedness.
+-- This requires rel_union to be defined above in a more general setting.
+def ARA_output (e : ARAe rel att) (S : rel → finset att) (I : db_instance D S α) : relation D α :=
+ARAe.rec_on e (db_instance_to_rel I) -- relnm
               (λ e1 e2 e1W e2W, rel_union e1W e2W) -- union
               (λ Y e1 e1W, rel_proj e1W Y pi.fintype) -- proj
               (λ Y hmutc e1 e1W, rel_selection e1W Y hmutc) -- selection
-              (λ φ hinj hc e1 e1W, rel_renaming e1W φ hc) -- rename
+              (λ φ hinj hc e1 e1W, rel_rename e1W φ hc) -- rename
               (λ e1 e2 e1W e2W, rel_join e1W e2W) -- join
 
-theorem rel_union_comm_type : relation D (X ∪ X') α = relation D (X' ∪ X) α := by rw finset.union_comm X X'
+-- Prove that output relation has schema ARAschema e S
+theorem ARA_sound_schema (e : ARAe rel att) (S : rel → finset att) (I : db_instance D S α) :
+(ARA_output e S I).schema = ARAschema e S :=
+begin
+induction e,
+case relnm : {exact rfl},
+case union : {
+    change (ARA_output (e_a.union e_a_1) S I) with
+      rel_union (ARA_output (e_a) S I) (ARA_output (e_a_1) S I),
+    change (ARAschema (e_a.union e_a_1) S) with (ARAschema e_a S) ∪ (ARAschema e_a_1 S),
+    unfold rel_union,
+    rw [← e_ih_a, ← e_ih_a_1],
+},
+case proj : {
+    change (ARA_output (ARAe.proj e_Y e_a) S I) with rel_proj (ARA_output e_a S I) e_Y pi.fintype,
+    change (ARAschema (ARAe.proj e_Y e_a) S) with (ARAschema e_a S) ∩ e_Y,
+    unfold rel_proj,
+    rw [← e_ih],
+},
+case selection : {exact e_ih},
+case rename : {
+    change (ARA_output (ARAe.rename e_φ e_hinj e_hc e_a) S I) with rel_rename (ARA_output e_a S I) e_φ e_hc,
+    change (ARAschema (ARAe.rename e_φ e_hinj e_hc e_a) S) with finset.image e_φ (ARAschema e_a S),
+    unfold rel_rename,
+    rw [← e_ih],
+},
+case join : {
+    change (ARA_output (e_a.join e_a_1) S I) with
+      rel_join (ARA_output (e_a) S I) (ARA_output (e_a_1) S I),
+    change (ARAschema (e_a.join e_a_1) S) with (ARAschema e_a S) ∪ (ARAschema e_a_1 S),
+    unfold rel_join,
+    rw [← e_ih_a, ← e_ih_a_1],
+},
+end
 
-theorem rel_union_comm (r : relation D X α) (r' : relation D X' α) : rel_union r r' = rel_union_comm_type.mp (rel_union r' r) := sorry
+theorem rel_union_comm (r r': relation D α) : rel_union r r' = rel_union r' r := sorry
 
 end ARA
 end ARA
